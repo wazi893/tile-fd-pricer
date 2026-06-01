@@ -1,0 +1,4 @@
+/target
+Cargo.lock
+# Generated visualisation artifact (reproduce with `cargo run --example surface`)
+option_surface.html
