@@ -1,4 +1,5 @@
 /target
 Cargo.lock
-# Generated visualisation artifact (reproduce with `cargo run --example surface`)
+# Generated visualisation artifacts (reproduce with the matching example)
 option_surface.html
+heston_surface.html

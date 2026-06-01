@@ -27,6 +27,7 @@
 pub mod batch;
 pub mod black_scholes;
 pub mod fd;
+pub mod heston;
 
 /// Call or put.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

@@ -80,6 +80,29 @@ structure-of-arrays layout (lane-contiguous, cache-friendly) and the
 elimination of per-option heap allocation — i.e. *data layout earns as much as
 SIMD here*. Reproduce with `cargo run --release --example bench [count]`.
 
+## Heston stochastic volatility (2D)
+
+Under Heston the variance is itself stochastic, so the option value `U(S, v, τ)`
+solves a 2D PDE with a correlation cross term. Discretised in `(ln S, v)`, each
+step is a **nine-point stencil** — five axis neighbours plus four diagonal
+corners — the same `f(neighbours)` pattern, now in two dimensions.
+
+Heston has no closed form, so `heston::analytic_price` implements the
+characteristic-function (Fourier) integral as an oracle, and the FD solver is
+validated against it (<2%) and against the Black–Scholes limit (ξ → 0). The
+signature result is the **implied-volatility skew** that flat Black–Scholes
+cannot produce:
+
+```
+cargo run --release --example heston_surface   # writes heston_surface.html
+```
+
+The visualisation shows the IV surface (strike × maturity), smile
+cross-sections, and the FD value surface `U(S, v)`. *Note:* the 2D solver uses
+an explicit scheme, so the time-step count is stability-bound by the vol-of-vol
+diffusion; an ADI scheme (Douglas / Craig–Sneyd) would remove that limit and is
+the natural next step.
+
 ## Status / roadmap
 
 - **Phase 1 (done)** — 1D Black–Scholes grid, explicit + Crank–Nicolson schemes,
@@ -87,7 +110,9 @@ SIMD here*. Reproduce with `cargo run --release --example bench [count]`.
 - **Phase 2 (done)** — SoA batched pricer: scalar → AVX2 → AVX2 + threads,
   bit-identical parity, throughput ladder.
 - **Phase 3 (done)** — interactive HTML value-surface + Δ/Γ visualisation.
-- Phase 4 — 2D Heston stochastic vol (the genuine 5-point stencil) + optional CUDA.
+- **Phase 4 (done)** — 2D Heston stochastic vol (nine-point stencil), Fourier
+  oracle, implied-vol surface visualisation.
+- Next — ADI scheme for Heston; CUDA port of the stencil; American + PSOR.
 
 ## License
 

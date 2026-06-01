@@ -120,3 +120,52 @@ pub fn price(p: &Params) -> Analytic {
 pub fn is_analytic(exercise: Exercise) -> bool {
     matches!(exercise, Exercise::European)
 }
+
+/// Black–Scholes vega, `∂price/∂σ`.
+pub fn vega(p: &Params) -> f64 {
+    if p.t <= 0.0 || p.vol <= 0.0 {
+        return 0.0;
+    }
+    let sqrt_t = p.t.sqrt();
+    let d1 = ((p.spot / p.strike).ln() + (p.rate - p.dividend + 0.5 * p.vol * p.vol) * p.t)
+        / (p.vol * sqrt_t);
+    p.spot * (-p.dividend * p.t).exp() * norm_pdf(d1) * sqrt_t
+}
+
+/// Invert Black–Scholes for the implied volatility that reproduces `target`.
+///
+/// Newton's method seeded at 20% vol, falling back to bisection if vega
+/// collapses. Returns `None` if the target is outside the no-arbitrage bounds.
+pub fn implied_vol(p: &Params, target: f64) -> Option<f64> {
+    let mut vol = 0.2;
+    for _ in 0..100 {
+        let trial = Params { vol, ..*p };
+        let diff = price(&trial).price - target;
+        if diff.abs() < 1e-8 {
+            return Some(vol);
+        }
+        let v = vega(&trial);
+        if v < 1e-10 {
+            break;
+        }
+        vol -= diff / v;
+        if !(1e-4..=5.0).contains(&vol) {
+            break;
+        }
+    }
+    // Bisection fallback on [1e-4, 5].
+    let (mut lo, mut hi) = (1e-4, 5.0);
+    let f = |s: f64| price(&Params { vol: s, ..*p }).price - target;
+    if f(lo) * f(hi) > 0.0 {
+        return None;
+    }
+    for _ in 0..100 {
+        let mid = 0.5 * (lo + hi);
+        if f(mid) > 0.0 {
+            hi = mid;
+        } else {
+            lo = mid;
+        }
+    }
+    Some(0.5 * (lo + hi))
+}
