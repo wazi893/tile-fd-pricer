@@ -3,7 +3,7 @@ name = "tile-fd-pricer"
 version = "0.1.0"
 edition = "2021"
 description = "Deterministic finite-difference option pricer built on a stencil kernel — the same f(neighbors) access pattern as a 115 T-cell/s cellular-automaton engine."
-license = "MIT OR Apache-2.0"
+license = "MIT"
 
 [dependencies]
 

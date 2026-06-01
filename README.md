@@ -15,6 +15,16 @@ stencil kernel running at ~10¹⁴ cells/s on GPU). The PDE solver reuses the
 *architecture* — neighbour-local updates, deterministic ordering, cache-friendly
 sweeps — with a floating-point kernel in place of the boolean one.
 
+| Gamma surface `Γ(S,τ)` (1D) | Heston implied-vol skew |
+|---|---|
+| ![gamma surface](docs/gamma_surface.png) | ![iv surface](docs/iv_surface.png) |
+
+*Left: Gamma read straight off the grid — a ridge at the strike that explodes
+toward expiry. Right: the Heston model's negative implied-vol skew (high vol at
+low strikes), which constant-vol Black–Scholes cannot produce.*
+
+See [`WRITEUP.md`](WRITEUP.md) for the full story.
+
 ## Why finite differences (and not Monte Carlo)
 
 | | Monte Carlo | Finite differences |
