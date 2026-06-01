@@ -24,6 +24,7 @@
 //! assert!((fd.price - exact.price).abs() < 1e-2);
 //! ```
 
+pub mod batch;
 pub mod black_scholes;
 pub mod fd;
 

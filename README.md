@@ -58,12 +58,35 @@ surface `V(S, τ)` animating backward from expiry to today, the FD European and
 American prices tracking the exact Black–Scholes curve, live Delta/Gamma, and a
 toggle for the American early-exercise free boundary.
 
+## Performance — batched pricing
+
+A single option is microseconds of work; a desk prices a *book* of thousands.
+So the stencil is vectorised **across options**: four contracts ride the four
+lanes of an AVX2 `f64` register and march the same stencil in lockstep, then
+the book is split across threads. The SIMD path is verified **bit-identical**
+to the scalar reference (same fused-multiply-add order) before timing — the
+speedups are honest because the answer never changes.
+
+```
+Book: 8192 options • grid 256 nodes × 488 steps • 1.0e9 stencil updates
+                          time        throughput        stencil    speedup
+scalar reference        1.971 s      4 157 opt/s      0.52 Gupd/s     1.00×
+AVX2 (4×f64)            0.121 s     67 922 opt/s      8.45 Gupd/s    16.34×
+AVX2 + 32 threads       0.012 s    708 663 opt/s     88.2 Gupd/s   170.46×
+```
+
+The 16× from a 4-wide register is the SIMD width compounded with the
+structure-of-arrays layout (lane-contiguous, cache-friendly) and the
+elimination of per-option heap allocation — i.e. *data layout earns as much as
+SIMD here*. Reproduce with `cargo run --release --example bench [count]`.
+
 ## Status / roadmap
 
 - **Phase 1 (done)** — 1D Black–Scholes grid, explicit + Crank–Nicolson schemes,
   European + American, Greeks, closed-form validation.
+- **Phase 2 (done)** — SoA batched pricer: scalar → AVX2 → AVX2 + threads,
+  bit-identical parity, throughput ladder.
 - **Phase 3 (done)** — interactive HTML value-surface + Δ/Γ visualisation.
-- Phase 2 — vectorise the stencil; scalar-vs-SIMD parity within ε; benchmark ladder.
 - Phase 4 — 2D Heston stochastic vol (the genuine 5-point stencil) + optional CUDA.
 
 ## License
