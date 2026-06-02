@@ -131,6 +131,77 @@ pub fn price_one(p: &Params, n: usize, num_std: f64, steps: usize) -> f64 {
     v[n / 2]
 }
 
+/// Structure-of-arrays *scalar* pricer for one quad — identical memory layout
+/// and FMA order to the AVX2 kernel, but with a plain scalar loop over the four
+/// lanes instead of vector instructions.
+///
+/// Its only purpose is benchmark *attribution*: comparing `price_one` (naive,
+/// per-option allocation, array-of-structs) against this isolates the
+/// data-layout win, and comparing this against the AVX2 kernel isolates the
+/// pure-SIMD win. Because the FMA order matches, it is bit-identical to both.
+#[allow(clippy::needless_range_loop)] // lane index also addresses the SoA buffer
+fn price_quad_scalar(opts: &[Params; LANES], n: usize, num_std: f64, steps: usize) -> [f64; LANES] {
+    let lc: [Lane; LANES] = std::array::from_fn(|i| lane(&opts[i], n, num_std, steps));
+    // Hoist coefficients into locals (the AVX2 kernel holds them in registers),
+    // so the comparison reflects SIMD, not coefficient reloads.
+    let pd: [f64; LANES] = std::array::from_fn(|l| lc[l].pd);
+    let pm: [f64; LANES] = std::array::from_fn(|l| lc[l].pm);
+    let pu: [f64; LANES] = std::array::from_fn(|l| lc[l].pu);
+    let stride = n + 1;
+    let mut src = vec![0.0f64; stride * LANES];
+    let mut dst = vec![0.0f64; stride * LANES];
+    for j in 0..=n {
+        for l in 0..LANES {
+            src[j * LANES + l] = lc[l].payoff(lc[l].s_at(j, n));
+        }
+    }
+    for step in 1..=steps {
+        for j in 1..n {
+            let base = j * LANES;
+            for l in 0..LANES {
+                // SAFETY: for j in 1..n, base-LANES .. base+LANES+l all lie in
+                // 0..stride*LANES. Unchecked to match the AVX2 kernel's safety
+                // profile, so the benchmark isolates SIMD, not bounds checks.
+                unsafe {
+                    let c = *src.get_unchecked(base + l);
+                    let left = *src.get_unchecked(base - LANES + l);
+                    let right = *src.get_unchecked(base + LANES + l);
+                    let acc = pm[l] * c;
+                    let acc = pd[l].mul_add(left, acc);
+                    *dst.get_unchecked_mut(base + l) = pu[l].mul_add(right, acc);
+                }
+            }
+        }
+        for (l, lane) in lc.iter().enumerate() {
+            let tau = step as f64 * lane.dtau;
+            let (lo, hi) = lane.boundary(tau);
+            dst[l] = lo;
+            dst[n * LANES + l] = hi;
+        }
+        std::mem::swap(&mut src, &mut dst);
+    }
+    let mid = (n / 2) * LANES;
+    std::array::from_fn(|l| src[mid + l])
+}
+
+/// Batch pricer using the SoA-scalar quad kernel (no SIMD). See
+/// [`price_quad_scalar`] — used for benchmark attribution.
+pub fn price_batch_scalar_soa(opts: &[Params], n: usize, num_std: f64, steps: usize) -> Vec<f64> {
+    let steps = if steps == 0 {
+        stable_steps(opts, n, num_std)
+    } else {
+        steps
+    };
+    let mut out = vec![0.0f64; opts.len()];
+    for (c, chunk) in opts.chunks(LANES).enumerate() {
+        let mut quad = [chunk[0]; LANES];
+        quad[..chunk.len()].copy_from_slice(chunk);
+        let res = price_quad_scalar(&quad, n, num_std, steps);
+        out[c * LANES..c * LANES + chunk.len()].copy_from_slice(&res[..chunk.len()]);
+    }
+    out
+}
+
 /// Price a batch of European options. Uses the AVX2 kernel when the CPU
 /// supports it, otherwise falls back to the scalar reference. `steps` of 0
 /// auto-selects the stable minimum.

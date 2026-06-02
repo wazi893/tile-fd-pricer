@@ -1,0 +1,8 @@
+# Build for the host CPU. This matters for honest benchmarking: without an
+# FMA-capable target, `f64::mul_add` lowers to a libm `fma()` *call* rather than
+# a hardware `vfmadd` instruction, which makes scalar code look artificially slow
+# next to hand-written AVX2. Enabling native codegen lets the compiler use
+# hardware FMA (and auto-vectorise) in the scalar paths too, so the benchmark
+# ladder reflects real SIMD/threading wins rather than a missing instruction.
+[build]
+rustflags = ["-C", "target-cpu=native"]

@@ -53,6 +53,26 @@ fn simd_is_bit_identical_to_scalar() {
 }
 
 #[test]
+fn soa_scalar_is_bit_identical_to_scalar() {
+    // The attribution baseline must match the naive reference exactly, so the
+    // benchmark ladder compares like with like.
+    let opts = book(37);
+    let n = 256;
+    let num_std = 6.0;
+    let steps = stable_steps(&opts, n, num_std);
+
+    let soa = batch::price_batch_scalar_soa(&opts, n, num_std, steps);
+    let scalar: Vec<f64> = opts
+        .iter()
+        .map(|p| price_one(p, n, num_std, steps))
+        .collect();
+
+    for (i, (a, b)) in soa.iter().zip(&scalar).enumerate() {
+        assert_eq!(a.to_bits(), b.to_bits(), "option {i}: soa {a} != scalar {b}");
+    }
+}
+
+#[test]
 fn parallel_matches_single_threaded() {
     let opts = book(200);
     let n = 200;
