@@ -27,6 +27,56 @@ fn atm_put() -> Params {
 }
 
 #[test]
+fn analytic_greeks_match_finite_difference_bumps() {
+    // The closed-form Greeks must equal central-difference bumps of the price.
+    // This validates vega/theta/rho without any hardcoded reference values.
+    for p in [atm_call(), atm_put()] {
+        let g = black_scholes::price(&p);
+        let bump = |f: &dyn Fn(f64) -> Params, h: f64| {
+            (black_scholes::price(&f(h)).price - black_scholes::price(&f(-h)).price) / (2.0 * h)
+        };
+        let vega_fd = bump(
+            &|h| Params {
+                vol: p.vol + h,
+                ..p
+            },
+            1e-4,
+        );
+        let rho_fd = bump(
+            &|h| Params {
+                rate: p.rate + h,
+                ..p
+            },
+            1e-5,
+        );
+        // theta is ∂/∂(calendar time) = −∂/∂(time-to-maturity).
+        let theta_fd = -bump(&|h| Params { t: p.t + h, ..p }, 1e-5);
+
+        assert!(
+            (g.vega - vega_fd).abs() < 1e-2,
+            "{:?} vega {} vs {}",
+            p.kind,
+            g.vega,
+            vega_fd
+        );
+        assert!(
+            (g.rho - rho_fd).abs() < 1e-2,
+            "{:?} rho {} vs {}",
+            p.kind,
+            g.rho,
+            rho_fd
+        );
+        assert!(
+            (g.theta - theta_fd).abs() < 1e-2,
+            "{:?} theta {} vs {}",
+            p.kind,
+            g.theta,
+            theta_fd
+        );
+    }
+}
+
+#[test]
 fn european_call_matches_closed_form() {
     let p = atm_call();
     let cfg = FdConfig {

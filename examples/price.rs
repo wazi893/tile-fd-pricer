@@ -58,4 +58,9 @@ fn main() {
         "American early-exercise premium      : {:.6}",
         amer.price - euro.price
     );
+    println!();
+    println!(
+        "Greeks (Black–Scholes exact): vega {:.4}  theta {:.4}/yr  rho {:.4}",
+        exact.vega, exact.theta, exact.rho
+    );
 }

@@ -74,6 +74,12 @@ pub struct Analytic {
     pub price: f64,
     pub delta: f64,
     pub gamma: f64,
+    /// `∂price/∂σ` (per unit vol, i.e. per 1.00 = 100% vol).
+    pub vega: f64,
+    /// `∂price/∂t` (per year; negative for long options — time decay).
+    pub theta: f64,
+    /// `∂price/∂r` (per unit rate).
+    pub rho: f64,
 }
 
 /// Exact Black–Scholes–Merton price and Greeks for a European option.
@@ -103,6 +109,9 @@ pub fn price(p: &Params) -> Analytic {
             price,
             delta: 0.0,
             gamma: 0.0,
+            vega: 0.0,
+            theta: 0.0,
+            rho: 0.0,
         };
     }
 
@@ -122,13 +131,31 @@ pub fn price(p: &Params) -> Analytic {
             -disc_q * norm_cdf(-d1),
         ),
     };
-    // Gamma is identical for calls and puts.
+    // Gamma and vega are identical for calls and puts.
     let gamma = disc_q * norm_pdf(d1) / (s * vol * sqrt_t);
+    let vega = s * disc_q * norm_pdf(d1) * sqrt_t;
+
+    // Theta = ∂price/∂t (calendar time). The shared decay term plus the
+    // carry/discount terms, which differ by option type.
+    let decay = -s * disc_q * norm_pdf(d1) * vol / (2.0 * sqrt_t);
+    let (theta, rho) = match kind {
+        OptionType::Call => (
+            decay - r * k * disc_r * norm_cdf(d2) + q * s * disc_q * norm_cdf(d1),
+            k * t * disc_r * norm_cdf(d2),
+        ),
+        OptionType::Put => (
+            decay + r * k * disc_r * norm_cdf(-d2) - q * s * disc_q * norm_cdf(-d1),
+            -k * t * disc_r * norm_cdf(-d2),
+        ),
+    };
 
     Analytic {
         price,
         delta,
         gamma,
+        vega,
+        theta,
+        rho,
     }
 }
 

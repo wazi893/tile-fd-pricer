@@ -1,11 +1,15 @@
 //! Throughput ladder for batched option pricing.
 //!
-//! Prices a heterogeneous book three ways — scalar reference, AVX2 (4×f64),
-//! AVX2 + threads — and reports options/second and speedups. The SIMD result
-//! is verified bit-identical to the scalar result before timing, so the
-//! speedups are honest: same work, same answer, faster.
+//! Prices a heterogeneous book four ways — naive scalar, SoA-layout scalar,
+//! AVX2 (4×f64), and AVX2 + threads — and reports options/second with
+//! attribution. Every path is verified bit-identical to the naive reference
+//! before timing, so any speedup is honest: same work, same answer.
 //!
-//! Run: `cargo run --release --example bench`
+//! The ladder is deliberately built with `target-cpu=native` (see
+//! `.cargo/config.toml`); without it `f64::mul_add` becomes a libm call and the
+//! scalar baselines look ~10× slower than they really are.
+//!
+//! Run: `cargo run --release --example bench [count]`
 
 use std::time::Instant;
 use tile_fd_pricer::batch::{
@@ -117,5 +121,8 @@ fn main() {
     println!(
         "  • lesson: without native codegen, f64::mul_add lowers to a libm call and scalar looks ~10× slower than it is"
     );
-    println!("\nAll four paths verified bit-identical. Sample: option[0] = {:.6}", scalar[0]);
+    println!(
+        "\nAll four paths verified bit-identical. Sample: option[0] = {:.6}",
+        scalar[0]
+    );
 }

@@ -68,7 +68,11 @@ fn soa_scalar_is_bit_identical_to_scalar() {
         .collect();
 
     for (i, (a, b)) in soa.iter().zip(&scalar).enumerate() {
-        assert_eq!(a.to_bits(), b.to_bits(), "option {i}: soa {a} != scalar {b}");
+        assert_eq!(
+            a.to_bits(),
+            b.to_bits(),
+            "option {i}: soa {a} != scalar {b}"
+        );
     }
 }
 
