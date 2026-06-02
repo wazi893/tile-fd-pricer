@@ -1,19 +1,16 @@
-# I built a CPU from logic gates. Then I turned its stencil kernel into an options pricer.
+# A cellular automaton and an options pricer are the same loop
 
-*A finite-difference option pricer in Rust — and why the kernel is the same one
-that runs a cellular-automaton engine at 10¹⁴ cells/second.*
+*How I reused the architecture of a 10¹⁴-cell/second cellular-automaton engine to
+build a deterministic finite-difference options pricer in Rust.*
 
----
-
-## TL;DR
-
-I had a high-performance cellular-automaton engine whose hot loop is a **stencil**:
-every cell's next value is a function of its immediate neighbours,
-`out = f(left, right, up, down)`, evaluated at ~115 trillion cells/second on a
-GPU. It turns out that a **finite-difference PDE solver** — the standard way to
-price options when Monte Carlo is the wrong tool — has *the exact same access
-pattern*. So I reused the architecture (neighbour-local updates, structure-of-
-arrays layout, deterministic ordering) and built a deterministic options pricer:
+A cellular automaton updates a grid by one rule: `cell = f(its neighbours)`. A
+finite-difference solver for the Black–Scholes PDE updates a grid by the same
+rule: `value = f(its neighbours)`. Same memory access pattern, same sweep order,
+same appetite for SIMD and cache-blocking — only the arithmetic in the middle
+changes. So I took a stencil engine I'd already built (~115 trillion
+cell-updates/second on a GPU) and pointed its architecture at options pricing,
+where finite differences beat Monte Carlo on the cases that actually matter:
+American exercise, Greeks, and reproducibility.
 
 - **1D Black–Scholes** — explicit + Crank–Nicolson, European + American, Greeks
   straight off the grid, validated by **convergence order** against the closed form.
@@ -24,19 +21,23 @@ arrays layout, deterministic ordering) and built a deterministic options pricer:
   semi-analytic Fourier oracle, producing the **implied-volatility skew** that
   flat Black–Scholes physically cannot.
 
-Dependency-free Rust, 20 tests, zero warnings.
-[Repo](https://github.com/wazi893/tile-fd-pricer) · code walkthrough below.
+**Try it:** `cargo test` runs the validation suite, `cargo run --example bench`
+prints the throughput ladder, and `cargo run --example heston_surface` writes an
+interactive HTML vol surface you can open in a browser. Dependency-free Rust, 20
+tests, zero warnings. [github.com/wazi893/tile-fd-pricer](https://github.com/wazi893/tile-fd-pricer).
+
+**The honest caveat, up front:** I am *not* running option prices through the
+automaton's 1-bit boolean kernel — that would be absurd. What carries over is the
+*architecture* (the memory layout, the sweep order, the determinism discipline),
+not the bits. That distinction is the whole point, and I come back to it below.
 
 ---
 
-## The connection nobody mentions
+## The same loop, concretely
 
-A cellular automaton updates a grid: each cell reads its neighbours and computes
-a new value. My engine packs 64 cells per `u64` and evaluates them with a single
+The automaton packs 64 cells per `u64` and advances them with a single
 instruction; on GPU it uses warp shuffles for horizontal neighbours and keeps
-rows register-resident.
-
-A finite-difference solver for the Black–Scholes PDE does the same thing. Write
+rows register-resident. The Black–Scholes solver wants the identical shape. Write
 the PDE in `x = ln S` and `τ = T − t` and it becomes a constant-coefficient
 diffusion equation. Discretise the spatial derivative with central differences
 and one time step is:
@@ -49,12 +50,11 @@ That's it. That's the stencil. Same `f(neighbours)` shape, different arithmetic
 in the middle. The boolean kernel becomes a floating-point kernel; the
 *choreography* — memory layout, sweep order, determinism — carries over wholesale.
 
-I want to be precise about the claim, because it's easy to overstate: I am **not**
-running option prices through the 1-bit boolean kernel. What transfers is the
-*architecture*, not the bits. That's still the whole point — the hard-won
-optimisation patterns (SoA layout, cache-friendly sweeps, cross-backend
-determinism) are domain-general, and that's exactly why a performance engineer is
-worth hiring.
+As flagged above, the boolean kernel doesn't *become* the float kernel — but the
+choreography around it does. And that's the real lesson: the hard-won patterns
+(SoA layout, cache-friendly sweeps, cross-backend determinism) are
+domain-general. The grid doesn't care whether the cells are alive-or-dead or
+priced-in-dollars.
 
 ## Why finite differences (and not Monte Carlo)
 
