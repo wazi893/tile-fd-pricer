@@ -179,6 +179,16 @@ arithmetic, the trap-free root choice, Simpson integration — and checked the F
 grid against it (<2%) and against the Black–Scholes limit as vol-of-vol → 0. The
 two methods cross-validate without relying on any memorised benchmark constant.
 
+The first cut used an explicit scheme, which is stability-bound by the vol-of-vol
+diffusion — it needed ~20,000 time steps. So I added a **Douglas ADI** scheme:
+the correlation cross-term is handled explicitly in a predictor, then the two
+axial operators are corrected implicitly with tridiagonal solves along each axis.
+It's unconditionally stable and prices in **~200 steps** at the same accuracy —
+validated against the Fourier oracle (<2%) and the explicit scheme (<1%) across a
+spread of correlations, vol-of-vols, maturities, and moneyness. Two independent
+schemes agreeing with an independent analytic oracle is about as much confidence
+as you get without a market to check against.
+
 The payoff is the signature result: a genuine **negative equity skew** that flat
 Black–Scholes cannot produce. With correlation ρ = −0.7, implied vol runs from 31%
 at low strikes through 20% at the money (= √v₀) down to 15% at high strikes:
@@ -187,13 +197,13 @@ at low strikes through 20% at the money (= √v₀) down to 15% at high strikes:
 
 ## What I'd do next (honest limitations)
 
-- The 2D Heston solver uses an **explicit** scheme, so its time-step count is
-  stability-bound by the vol-of-vol diffusion. An ADI scheme (Douglas /
-  Craig–Sneyd) would make it unconditionally stable — the correct production fix.
+- The Douglas ADI scheme is first-order in time because the cross-term is
+  explicit; a **Craig–Sneyd** second corrector would restore second-order
+  accuracy.
 - American options under Crank–Nicolson currently use an operator-splitting
-  projection; PSOR would solve the linear-complementarity problem properly.
-- The stencil is a natural CUDA target — the same warp-shuffle, register-resident
-  playbook the cellular engine already uses.
+  projection; **PSOR** would solve the linear-complementarity problem properly.
+- The stencil is a natural **CUDA** target — the same warp-shuffle,
+  register-resident playbook the cellular engine already uses.
 
 ## What this demonstrates
 

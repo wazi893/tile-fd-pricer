@@ -67,14 +67,15 @@ fn main() {
         strike: 100.0,
         ..base
     };
+    // Douglas ADI: unconditionally stable, ~200 steps instead of ~20k.
     let cfg = Config {
         nx: 160,
         nv: 80,
         num_std: 6.0,
         v_max: 0.0,
-        steps: 0,
+        steps: 200,
     };
-    let r = heston::solve(&hfd, &cfg);
+    let r = heston::solve_adi(&hfd, &cfg);
     // Clip the price axis to a readable window.
     let (s_lo, s_hi) = (50.0, 170.0);
     let xi_idx: Vec<usize> = (0..=r.nx)

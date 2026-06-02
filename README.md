@@ -119,9 +119,18 @@ step is a **nine-point stencil** — five axis neighbours plus four diagonal
 corners — the same `f(neighbours)` pattern, now in two dimensions.
 
 Heston has no closed form, so `heston::analytic_price` implements the
-characteristic-function (Fourier) integral as an oracle, and the FD solver is
-validated against it (<2%) and against the Black–Scholes limit (ξ → 0). The
-signature result is the **implied-volatility skew** that flat Black–Scholes
+characteristic-function (Fourier) integral as an oracle. Two solvers are
+validated against it (and against each other, and the Black–Scholes ξ → 0
+limit):
+
+- `heston::solve` — the explicit nine-point stencil; simple, but the time step
+  is stability-bound by the vol-of-vol diffusion (~20k steps).
+- `heston::solve_adi` — a **Douglas ADI** scheme (explicit cross term, implicit
+  tridiagonal corrections along each axis). **Unconditionally stable**, so it
+  prices in ~200 steps with the same accuracy. Matches the Fourier oracle to
+  <2% across correlations, vol-of-vols, maturities, and moneyness.
+
+The signature result is the **implied-volatility skew** that flat Black–Scholes
 cannot produce:
 
 ```
@@ -129,10 +138,7 @@ cargo run --release --example heston_surface   # writes heston_surface.html
 ```
 
 The visualisation shows the IV surface (strike × maturity), smile
-cross-sections, and the FD value surface `U(S, v)`. *Note:* the 2D solver uses
-an explicit scheme, so the time-step count is stability-bound by the vol-of-vol
-diffusion; an ADI scheme (Douglas / Craig–Sneyd) would remove that limit and is
-the natural next step.
+cross-sections, and the FD value surface `U(S, v)`.
 
 ## Status / roadmap
 
@@ -141,10 +147,11 @@ the natural next step.
 - **Phase 2 (done)** — SoA batched pricer: scalar → AVX2 → AVX2 + threads,
   bit-identical parity, throughput ladder.
 - **Phase 3 (done)** — interactive HTML value-surface + Δ/Γ visualisation.
-- **Phase 4 (done)** — 2D Heston stochastic vol (nine-point stencil), Fourier
-  oracle, implied-vol surface visualisation.
-- Next — ADI scheme for Heston; CUDA port of the stencil; American + PSOR.
+- **Phase 4 (done)** — 2D Heston stochastic vol: explicit + Douglas ADI schemes,
+  Fourier oracle, implied-vol surface visualisation.
+- Next — CUDA port of the stencil; American options under ADI via PSOR;
+  Craig–Sneyd second-order cross-term correction.
 
 ## License
 
-MIT OR Apache-2.0
+MIT
