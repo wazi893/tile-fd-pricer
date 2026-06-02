@@ -20,13 +20,21 @@ fn atm_call() -> Params {
 }
 
 fn atm_put() -> Params {
-    Params { kind: OptionType::Put, ..atm_call() }
+    Params {
+        kind: OptionType::Put,
+        ..atm_call()
+    }
 }
 
 #[test]
 fn european_call_matches_closed_form() {
     let p = atm_call();
-    let cfg = FdConfig { n_space: 500, n_time: 500, num_std: 8.0, scheme: Scheme::CrankNicolson };
+    let cfg = FdConfig {
+        n_space: 500,
+        n_time: 500,
+        num_std: 8.0,
+        scheme: Scheme::CrankNicolson,
+    };
     let fd = fd::solve(&p, Exercise::European, &cfg);
     let exact = black_scholes::price(&p);
     assert!(
@@ -40,7 +48,12 @@ fn european_call_matches_closed_form() {
 #[test]
 fn european_put_matches_closed_form() {
     let p = atm_put();
-    let cfg = FdConfig { n_space: 500, n_time: 500, num_std: 8.0, scheme: Scheme::CrankNicolson };
+    let cfg = FdConfig {
+        n_space: 500,
+        n_time: 500,
+        num_std: 8.0,
+        scheme: Scheme::CrankNicolson,
+    };
     let fd = fd::solve(&p, Exercise::European, &cfg);
     let exact = black_scholes::price(&p);
     assert!(
@@ -54,11 +67,26 @@ fn european_put_matches_closed_form() {
 #[test]
 fn greeks_match_closed_form() {
     let p = atm_call();
-    let cfg = FdConfig { n_space: 800, n_time: 800, num_std: 8.0, scheme: Scheme::CrankNicolson };
+    let cfg = FdConfig {
+        n_space: 800,
+        n_time: 800,
+        num_std: 8.0,
+        scheme: Scheme::CrankNicolson,
+    };
     let fd = fd::solve(&p, Exercise::European, &cfg);
     let exact = black_scholes::price(&p);
-    assert!((fd.delta - exact.delta).abs() < 5e-3, "delta {} vs {}", fd.delta, exact.delta);
-    assert!((fd.gamma - exact.gamma).abs() < 5e-4, "gamma {} vs {}", fd.gamma, exact.gamma);
+    assert!(
+        (fd.delta - exact.delta).abs() < 5e-3,
+        "delta {} vs {}",
+        fd.delta,
+        exact.delta
+    );
+    assert!(
+        (fd.gamma - exact.gamma).abs() < 5e-4,
+        "gamma {} vs {}",
+        fd.gamma,
+        exact.gamma
+    );
 }
 
 #[test]
@@ -66,7 +94,12 @@ fn put_call_parity_on_grid() {
     // C − P = S·e^{−qT} − K·e^{−rT}, computed entirely from FD prices.
     let c = atm_call();
     let p = atm_put();
-    let cfg = FdConfig { n_space: 500, n_time: 500, num_std: 8.0, scheme: Scheme::CrankNicolson };
+    let cfg = FdConfig {
+        n_space: 500,
+        n_time: 500,
+        num_std: 8.0,
+        scheme: Scheme::CrankNicolson,
+    };
     let call = fd::solve(&c, Exercise::European, &cfg).price;
     let put = fd::solve(&p, Exercise::European, &cfg).price;
     let lhs = call - put;
@@ -81,7 +114,12 @@ fn crank_nicolson_converges_quadratically() {
     let resolutions = [64usize, 128, 256, 512];
     let mut errors = Vec::new();
     for &nr in &resolutions {
-        let cfg = FdConfig { n_space: nr, n_time: nr, num_std: 8.0, scheme: Scheme::CrankNicolson };
+        let cfg = FdConfig {
+            n_space: nr,
+            n_time: nr,
+            num_std: 8.0,
+            scheme: Scheme::CrankNicolson,
+        };
         let fd = fd::solve(&p, Exercise::European, &cfg);
         errors.push((fd.price - exact).abs());
     }
@@ -92,7 +130,10 @@ fn crank_nicolson_converges_quadratically() {
         let ratio = w[0] / w[1];
         assert!(ratio > 2.0, "convergence ratio {ratio} too low: {errors:?}");
     }
-    assert!(*errors.last().unwrap() < 2e-3, "finest error too large: {errors:?}");
+    assert!(
+        *errors.last().unwrap() < 2e-3,
+        "finest error too large: {errors:?}"
+    );
 }
 
 #[test]
@@ -101,29 +142,55 @@ fn explicit_and_crank_nicolson_agree() {
     let ex = fd::solve(
         &p,
         Exercise::European,
-        &FdConfig { n_space: 400, n_time: 400, num_std: 8.0, scheme: Scheme::Explicit },
+        &FdConfig {
+            n_space: 400,
+            n_time: 400,
+            num_std: 8.0,
+            scheme: Scheme::Explicit,
+        },
     );
     let cn = fd::solve(
         &p,
         Exercise::European,
-        &FdConfig { n_space: 400, n_time: 400, num_std: 8.0, scheme: Scheme::CrankNicolson },
+        &FdConfig {
+            n_space: 400,
+            n_time: 400,
+            num_std: 8.0,
+            scheme: Scheme::CrankNicolson,
+        },
     );
-    assert!((ex.price - cn.price).abs() < 5e-3, "explicit {} vs CN {}", ex.price, cn.price);
+    assert!(
+        (ex.price - cn.price).abs() < 5e-3,
+        "explicit {} vs CN {}",
+        ex.price,
+        cn.price
+    );
 }
 
 #[test]
 fn american_put_has_early_exercise_premium() {
     let p = atm_put();
-    let cfg = FdConfig { n_space: 500, n_time: 500, num_std: 8.0, scheme: Scheme::Explicit };
+    let cfg = FdConfig {
+        n_space: 500,
+        n_time: 500,
+        num_std: 8.0,
+        scheme: Scheme::Explicit,
+    };
     let euro = fd::solve(&p, Exercise::European, &cfg).price;
     let amer = fd::solve(&p, Exercise::American, &cfg).price;
     let intrinsic = p.payoff(p.spot);
     // An American put is worth at least its European twin and never less than
     // immediate exercise.
     assert!(amer >= euro - 1e-6, "american {amer} < european {euro}");
-    assert!(amer >= intrinsic - 1e-6, "american {amer} < intrinsic {intrinsic}");
+    assert!(
+        amer >= intrinsic - 1e-6,
+        "american {amer} < intrinsic {intrinsic}"
+    );
     // With positive rates the premium should be strictly positive.
-    assert!(amer > euro + 1e-3, "no early-exercise premium: {amer} vs {euro}");
+    assert!(
+        amer > euro + 1e-3,
+        "no early-exercise premium: {amer} vs {euro}"
+    );
 }
 
 #[test]
@@ -131,10 +198,18 @@ fn american_call_no_dividends_equals_european() {
     // Classic result: it is never optimal to exercise an American call early
     // on a non-dividend-paying stock, so the two prices coincide.
     let p = atm_call();
-    let cfg = FdConfig { n_space: 500, n_time: 500, num_std: 8.0, scheme: Scheme::Explicit };
+    let cfg = FdConfig {
+        n_space: 500,
+        n_time: 500,
+        num_std: 8.0,
+        scheme: Scheme::Explicit,
+    };
     let euro = fd::solve(&p, Exercise::European, &cfg).price;
     let amer = fd::solve(&p, Exercise::American, &cfg).price;
-    assert!((amer - euro).abs() < 5e-3, "american call {amer} vs european {euro}");
+    assert!(
+        (amer - euro).abs() < 5e-3,
+        "american call {amer} vs european {euro}"
+    );
 }
 
 #[test]

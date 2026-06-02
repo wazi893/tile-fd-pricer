@@ -71,21 +71,30 @@ impl C {
         C::new(self.re - o.re, self.im - o.im)
     }
     fn mul(self, o: C) -> C {
-        C::new(self.re * o.re - self.im * o.im, self.re * o.im + self.im * o.re)
+        C::new(
+            self.re * o.re - self.im * o.im,
+            self.re * o.im + self.im * o.re,
+        )
     }
     fn scale(self, k: f64) -> C {
         C::new(self.re * k, self.im * k)
     }
     fn div(self, o: C) -> C {
         let d = o.re * o.re + o.im * o.im;
-        C::new((self.re * o.re + self.im * o.im) / d, (self.im * o.re - self.re * o.im) / d)
+        C::new(
+            (self.re * o.re + self.im * o.im) / d,
+            (self.im * o.re - self.re * o.im) / d,
+        )
     }
     fn exp(self) -> C {
         let e = self.re.exp();
         C::new(e * self.im.cos(), e * self.im.sin())
     }
     fn ln(self) -> C {
-        C::new((self.re * self.re + self.im * self.im).sqrt().ln(), self.im.atan2(self.re))
+        C::new(
+            (self.re * self.re + self.im * self.im).sqrt().ln(),
+            self.im.atan2(self.re),
+        )
     }
     /// Principal square root via `exp(½·ln z)`.
     fn sqrt(self) -> C {
@@ -124,12 +133,18 @@ fn integrand(p: &HestonParams, phi: f64, j: u8) -> f64 {
     // C(φ,τ) = (r−q)φi τ + (a/ξ²)[ (b−ρξφi−d)τ − 2 ln((1−g e^{−dτ})/(1−g)) ]
     let one = C::new(1.0, 0.0);
     let log_arg = one.sub(g.mul(edt)).div(one.sub(g));
-    let cc = phi_i
-        .scale((p.rate - p.dividend) * p.t)
-        .add(bmr.sub(d).scale(p.t).sub(log_arg.ln().scale(2.0)).scale(a / (p.xi * p.xi)));
+    let cc = phi_i.scale((p.rate - p.dividend) * p.t).add(
+        bmr.sub(d)
+            .scale(p.t)
+            .sub(log_arg.ln().scale(2.0))
+            .scale(a / (p.xi * p.xi)),
+    );
 
     // D(φ,τ) = (b−ρξφi−d)/ξ² · (1 − e^{−dτ})/(1 − g e^{−dτ})
-    let dd = bmr.sub(d).scale(1.0 / (p.xi * p.xi)).mul(one.sub(edt).div(one.sub(g.mul(edt))));
+    let dd = bmr
+        .sub(d)
+        .scale(1.0 / (p.xi * p.xi))
+        .mul(one.sub(edt).div(one.sub(g.mul(edt))));
 
     // fⱼ = exp(C + D·v₀ + iφ·lnS₀)
     let f = cc.add(dd.scale(p.v0)).add(phi_i.scale(p.spot.ln())).exp();
@@ -187,7 +202,13 @@ pub struct Config {
 
 impl Default for Config {
     fn default() -> Self {
-        Config { nx: 120, nv: 60, num_std: 5.0, v_max: 0.0, steps: 0 }
+        Config {
+            nx: 120,
+            nv: 60,
+            num_std: 5.0,
+            v_max: 0.0,
+            steps: 0,
+        }
     }
 }
 
@@ -206,15 +227,23 @@ pub struct Result {
 
 /// Price a Heston option by 2D explicit finite differences.
 pub fn solve(p: &HestonParams, cfg: &Config) -> Result {
-    let nx = if cfg.nx % 2 == 0 { cfg.nx } else { cfg.nx + 1 };
+    let nx = if cfg.nx.is_multiple_of(2) {
+        cfg.nx
+    } else {
+        cfg.nx + 1
+    };
     let nv = cfg.nv;
-    let v_max = if cfg.v_max > 0.0 { cfg.v_max } else { (p.v0.max(p.theta) * 6.0).max(0.2) };
+    let v_max = if cfg.v_max > 0.0 {
+        cfg.v_max
+    } else {
+        (p.v0.max(p.theta) * 6.0).max(0.2)
+    };
 
     // x grid centred on ln(spot); spot sits on node nx/2.
     let center = p.spot.ln();
     let vref = p.v0.max(p.theta).max(1e-4);
-    let half = (cfg.num_std * vref.sqrt() * p.t.sqrt()).max(0.2)
-        + (p.rate - p.dividend).abs() * p.t;
+    let half =
+        (cfg.num_std * vref.sqrt() * p.t.sqrt()).max(0.2) + (p.rate - p.dividend).abs() * p.t;
     let dx = 2.0 * half / nx as f64;
     let x: Vec<f64> = (0..=nx).map(|i| center - half + i as f64 * dx).collect();
     let s: Vec<f64> = x.iter().map(|&xi| xi.exp()).collect();
@@ -310,5 +339,14 @@ pub fn solve(p: &HestonParams, cfg: &Config) -> Result {
     let frac = jf - j0 as f64;
     let price = u[i0 * stride + j0] * (1.0 - frac) + u[i0 * stride + j0 + 1] * frac;
 
-    Result { price, values: u, x, s, v, nx, nv, time_steps: steps }
+    Result {
+        price,
+        values: u,
+        x,
+        s,
+        v,
+        nx,
+        nv,
+        time_steps: steps,
+    }
 }

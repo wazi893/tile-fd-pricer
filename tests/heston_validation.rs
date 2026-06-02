@@ -58,10 +58,20 @@ fn analytic_reduces_to_black_scholes() {
 fn fd_reduces_to_black_scholes() {
     let mut h = base(OptionType::Call);
     h.xi = 1e-3;
-    let cfg = Config { nx: 160, nv: 40, num_std: 6.0, v_max: 0.0, steps: 0 };
+    let cfg = Config {
+        nx: 160,
+        nv: 40,
+        num_std: 6.0,
+        v_max: 0.0,
+        steps: 0,
+    };
     let r = heston::solve(&h, &cfg);
     let bs = bs_equiv(&h, h.theta.sqrt());
-    assert!((r.price - bs).abs() < 0.15, "Heston FD {} vs BS {bs}", r.price);
+    assert!(
+        (r.price - bs).abs() < 0.15,
+        "Heston FD {} vs BS {bs}",
+        r.price
+    );
 }
 
 #[test]
@@ -69,10 +79,21 @@ fn fd_matches_analytic_with_stochastic_vol() {
     // Full Heston: FD on a modest grid vs the trusted Fourier price.
     let h = base(OptionType::Call);
     let an = heston::analytic_price(&h);
-    let cfg = Config { nx: 200, nv: 80, num_std: 6.0, v_max: 0.0, steps: 0 };
+    let cfg = Config {
+        nx: 200,
+        nv: 80,
+        num_std: 6.0,
+        v_max: 0.0,
+        steps: 0,
+    };
     let r = heston::solve(&h, &cfg);
     let rel = (r.price - an).abs() / an;
-    assert!(rel < 0.02, "FD {} vs analytic {an} (rel {:.3})", r.price, rel);
+    assert!(
+        rel < 0.02,
+        "FD {} vs analytic {an} (rel {:.3})",
+        r.price,
+        rel
+    );
 }
 
 #[test]
@@ -81,17 +102,33 @@ fn analytic_put_call_parity() {
     let p = heston::analytic_price(&base(OptionType::Put));
     let h = base(OptionType::Call);
     let rhs = h.spot * (-h.dividend * h.t).exp() - h.strike * (-h.rate * h.t).exp();
-    assert!((c - p - rhs).abs() < 1e-3, "parity: C−P={} vs {}", c - p, rhs);
+    assert!(
+        (c - p - rhs).abs() < 1e-3,
+        "parity: C−P={} vs {}",
+        c - p,
+        rhs
+    );
 }
 
 #[test]
 fn fd_put_via_solver_matches_analytic() {
     let h = base(OptionType::Put);
     let an = heston::analytic_price(&h);
-    let cfg = Config { nx: 200, nv: 80, num_std: 6.0, v_max: 0.0, steps: 0 };
+    let cfg = Config {
+        nx: 200,
+        nv: 80,
+        num_std: 6.0,
+        v_max: 0.0,
+        steps: 0,
+    };
     let r = heston::solve(&h, &cfg);
     let rel = (r.price - an).abs() / an;
-    assert!(rel < 0.03, "FD put {} vs analytic {an} (rel {:.3})", r.price, rel);
+    assert!(
+        rel < 0.03,
+        "FD put {} vs analytic {an} (rel {:.3})",
+        r.price,
+        rel
+    );
 }
 
 #[test]
@@ -106,5 +143,8 @@ fn smile_is_present() {
     let p_atm = heston::analytic_price(&atm);
     // Sanity: lower-strike put is cheaper in absolute terms but both positive.
     assert!(p_low > 0.0 && p_atm > 0.0);
-    assert!(p_atm > p_low, "ATM put {p_atm} should exceed K=80 put {p_low}");
+    assert!(
+        p_atm > p_low,
+        "ATM put {p_atm} should exceed K=80 put {p_low}"
+    );
 }

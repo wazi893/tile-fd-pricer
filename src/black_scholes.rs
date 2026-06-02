@@ -81,7 +81,15 @@ pub struct Analytic {
 /// Only valid for [`Exercise::European`]; American options have no closed form
 /// and must be priced on the grid.
 pub fn price(p: &Params) -> Analytic {
-    let Params { spot: s, strike: k, rate: r, dividend: q, vol, t, kind } = *p;
+    let Params {
+        spot: s,
+        strike: k,
+        rate: r,
+        dividend: q,
+        vol,
+        t,
+        kind,
+    } = *p;
 
     // Degenerate guards: zero time or zero vol collapse to discounted intrinsic.
     if t <= 0.0 || vol <= 0.0 {
@@ -91,7 +99,11 @@ pub fn price(p: &Params) -> Analytic {
             OptionType::Call => (fwd - disc_k).max(0.0),
             OptionType::Put => (disc_k - fwd).max(0.0),
         };
-        return Analytic { price, delta: 0.0, gamma: 0.0 };
+        return Analytic {
+            price,
+            delta: 0.0,
+            gamma: 0.0,
+        };
     }
 
     let sqrt_t = t.sqrt();
@@ -113,7 +125,11 @@ pub fn price(p: &Params) -> Analytic {
     // Gamma is identical for calls and puts.
     let gamma = disc_q * norm_pdf(d1) / (s * vol * sqrt_t);
 
-    Analytic { price, delta, gamma }
+    Analytic {
+        price,
+        delta,
+        gamma,
+    }
 }
 
 /// Convenience guard: analytic pricing is only meaningful for European options.

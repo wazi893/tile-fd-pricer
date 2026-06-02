@@ -22,15 +22,26 @@ fn main() {
 // ---------------------------------------------------------------------------
 fn render_gamma_surface() {
     let p = Params {
-        spot: 100.0, strike: 100.0, rate: 0.05, dividend: 0.0,
-        vol: 0.20, t: 1.0, kind: OptionType::Put,
+        spot: 100.0,
+        strike: 100.0,
+        rate: 0.05,
+        dividend: 0.0,
+        vol: 0.20,
+        t: 1.0,
+        kind: OptionType::Put,
     };
-    let cfg = FdConfig { n_space: 600, n_time: 600, num_std: 8.0, scheme: Scheme::CrankNicolson };
+    let cfg = FdConfig {
+        n_space: 600,
+        n_time: 600,
+        num_std: 8.0,
+        scheme: Scheme::CrankNicolson,
+    };
     let grid = Grid::new(&p, cfg.n_space, cfg.num_std);
     let dx = grid.dx;
     // Interior window in price; needs one node of margin each side for Γ.
-    let window: Vec<usize> =
-        (1..grid.n).filter(|&i| grid.s[i] >= 45.0 && grid.s[i] <= 175.0).collect();
+    let window: Vec<usize> = (1..grid.n)
+        .filter(|&i| grid.s[i] >= 45.0 && grid.s[i] <= 175.0)
+        .collect();
 
     let mut rows: Vec<Vec<f64>> = Vec::new();
     fd::solve_with(&p, Exercise::European, &cfg, |_tau, v| {
@@ -58,8 +69,17 @@ fn render_gamma_surface() {
 // ---------------------------------------------------------------------------
 fn render_iv_surface() {
     let base = HestonParams {
-        spot: 100.0, strike: 100.0, rate: 0.03, dividend: 0.0, t: 1.0,
-        kind: OptionType::Call, v0: 0.04, kappa: 1.5, theta: 0.045, xi: 0.5, rho: -0.7,
+        spot: 100.0,
+        strike: 100.0,
+        rate: 0.03,
+        dividend: 0.0,
+        t: 1.0,
+        kind: OptionType::Call,
+        v0: 0.04,
+        kappa: 1.5,
+        theta: 0.045,
+        xi: 0.5,
+        rho: -0.7,
     };
     let mats: Vec<f64> = (0..24).map(|i| 0.1 + 1.9 * i as f64 / 23.0).collect();
     let strikes: Vec<f64> = (0..46).map(|i| 70.0 + 65.0 * i as f64 / 45.0).collect();
@@ -68,20 +88,41 @@ fn render_iv_surface() {
     for &t in &mats {
         let mut row = Vec::new();
         for &k in &strikes {
-            let h = HestonParams { t, strike: k, ..base };
+            let h = HestonParams {
+                t,
+                strike: k,
+                ..base
+            };
             let price = heston::analytic_price(&h);
-            let bp = Params { spot: h.spot, strike: k, rate: h.rate, dividend: h.dividend, vol: 0.2, t, kind: h.kind };
+            let bp = Params {
+                spot: h.spot,
+                strike: k,
+                rate: h.rate,
+                dividend: h.dividend,
+                vol: 0.2,
+                t,
+                kind: h.kind,
+            };
             row.push(black_scholes::implied_vol(&bp, price).unwrap_or(f64::NAN));
         }
         rows.push(row);
     }
-    let (lo, hi) = rows.iter().flatten().filter(|x| x.is_finite()).fold(
-        (f64::INFINITY, f64::NEG_INFINITY),
-        |(lo, hi), &x| (lo.min(x), hi.max(x)),
-    );
+    let (lo, hi) = rows
+        .iter()
+        .flatten()
+        .filter(|x| x.is_finite())
+        .fold((f64::INFINITY, f64::NEG_INFINITY), |(lo, hi), &x| {
+            (lo.min(x), hi.max(x))
+        });
     // Normalise into [0, vmax] so the shared colormap spans the IV range.
-    let norm: Vec<Vec<f64>> =
-        rows.iter().map(|r| r.iter().map(|&x| if x.is_finite() { x - lo } else { f64::NAN }).collect()).collect();
+    let norm: Vec<Vec<f64>> = rows
+        .iter()
+        .map(|r| {
+            r.iter()
+                .map(|&x| if x.is_finite() { x - lo } else { f64::NAN })
+                .collect()
+        })
+        .collect();
     let (w, h, px) = render_heatmap(&norm, hi - lo, 18);
     write_png("docs/iv_surface.png", w, h, &px);
 }
@@ -92,7 +133,13 @@ fn render_iv_surface() {
 fn cmap(t: f64) -> [u8; 3] {
     let t = t.clamp(0.0, 1.0);
     let r = (255.0 * (1.5 * t - 0.3).clamp(0.0, 1.0)) as u8;
-    let g = (255.0 * (if t < 0.5 { 0.2 + 1.4 * t } else { 0.9 - 0.1 * (t - 0.5) }).clamp(0.0, 1.0)) as u8;
+    let g = (255.0
+        * (if t < 0.5 {
+            0.2 + 1.4 * t
+        } else {
+            0.9 - 0.1 * (t - 0.5)
+        })
+        .clamp(0.0, 1.0)) as u8;
     let b = (255.0 * (0.95 - 1.2 * t).clamp(0.0, 1.0)) as u8;
     [r, g, b]
 }
@@ -107,7 +154,11 @@ fn render_heatmap(rows: &[Vec<f64>], vmax: f64, block: usize) -> (usize, usize, 
     let mut px = vec![0u8; w * h * 3];
     for (r, row) in rows.iter().enumerate() {
         for (c, &val) in row.iter().enumerate() {
-            let color = if val.is_finite() { cmap(val / vmax) } else { [30, 33, 38] };
+            let color = if val.is_finite() {
+                cmap(val / vmax)
+            } else {
+                [30, 33, 38]
+            };
             // Flip vertically: data row 0 at image bottom.
             let y0 = (nr - 1 - r) * block;
             let x0 = c * block;
@@ -188,7 +239,11 @@ fn crc32(data: &[u8]) -> u32 {
     for &byte in data {
         crc ^= byte as u32;
         for _ in 0..8 {
-            crc = if crc & 1 != 0 { (crc >> 1) ^ 0xEDB8_8320 } else { crc >> 1 };
+            crc = if crc & 1 != 0 {
+                (crc >> 1) ^ 0xEDB8_8320
+            } else {
+                crc >> 1
+            };
         }
     }
     !crc

@@ -112,8 +112,8 @@ pub fn price_one(p: &Params, n: usize, num_std: f64, steps: usize) -> f64 {
     let lc = lane(p, n, num_std, steps);
     let mut v = vec![0.0f64; n + 1];
     let mut w = vec![0.0f64; n + 1];
-    for j in 0..=n {
-        v[j] = lc.payoff(lc.s_at(j, n));
+    for (j, slot) in v.iter_mut().enumerate() {
+        *slot = lc.payoff(lc.s_at(j, n));
     }
     for step in 1..=steps {
         let tau = step as f64 * lc.dtau;
@@ -135,14 +135,20 @@ pub fn price_one(p: &Params, n: usize, num_std: f64, steps: usize) -> f64 {
 /// supports it, otherwise falls back to the scalar reference. `steps` of 0
 /// auto-selects the stable minimum.
 pub fn price_batch(opts: &[Params], n: usize, num_std: f64, steps: usize) -> Vec<f64> {
-    let steps = if steps == 0 { stable_steps(opts, n, num_std) } else { steps };
+    let steps = if steps == 0 {
+        stable_steps(opts, n, num_std)
+    } else {
+        steps
+    };
     #[cfg(target_arch = "x86_64")]
     {
         if is_x86_feature_detected!("avx2") && is_x86_feature_detected!("fma") {
             return price_batch_avx2(opts, n, num_std, steps);
         }
     }
-    opts.iter().map(|p| price_one(p, n, num_std, steps)).collect()
+    opts.iter()
+        .map(|p| price_one(p, n, num_std, steps))
+        .collect()
 }
 
 /// AVX2 dispatcher: chunk the book into groups of four and price each quad.
@@ -162,7 +168,12 @@ fn price_batch_avx2(opts: &[Params], n: usize, num_std: f64, steps: usize) -> Ve
 /// Price exactly four options at once with one AVX2 lane each.
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx2,fma")]
-unsafe fn price_quad_avx2(opts: &[Params; LANES], n: usize, num_std: f64, steps: usize) -> [f64; LANES] {
+unsafe fn price_quad_avx2(
+    opts: &[Params; LANES],
+    n: usize,
+    num_std: f64,
+    steps: usize,
+) -> [f64; LANES] {
     let lc: [Lane; LANES] = std::array::from_fn(|i| lane(&opts[i], n, num_std, steps));
 
     let pdv = _mm256_set_pd(lc[3].pd, lc[2].pd, lc[1].pd, lc[0].pd);
@@ -193,9 +204,9 @@ unsafe fn price_quad_avx2(opts: &[Params; LANES], n: usize, num_std: f64, steps:
             _mm256_storeu_pd(dst.add(base), acc);
         }
         // Per-lane Dirichlet boundaries (scalar; 8 stores per step is noise).
-        for l in 0..LANES {
-            let tau = step as f64 * lc[l].dtau;
-            let (lo, hi) = lc[l].boundary(tau);
+        for (l, lane) in lc.iter().enumerate() {
+            let tau = step as f64 * lane.dtau;
+            let (lo, hi) = lane.boundary(tau);
             *dst.add(l) = lo;
             *dst.add(n * LANES + l) = hi;
         }
@@ -208,8 +219,14 @@ unsafe fn price_quad_avx2(opts: &[Params; LANES], n: usize, num_std: f64, steps:
 
 /// AVX2 batch pricing spread across worker threads (level 3 of the ladder).
 pub fn price_batch_parallel(opts: &[Params], n: usize, num_std: f64, steps: usize) -> Vec<f64> {
-    let steps = if steps == 0 { stable_steps(opts, n, num_std) } else { steps };
-    let threads = std::thread::available_parallelism().map(|v| v.get()).unwrap_or(1);
+    let steps = if steps == 0 {
+        stable_steps(opts, n, num_std)
+    } else {
+        steps
+    };
+    let threads = std::thread::available_parallelism()
+        .map(|v| v.get())
+        .unwrap_or(1);
     let total = opts.len();
     if threads <= 1 || total < LANES * 4 {
         return price_batch(opts, n, num_std, steps);

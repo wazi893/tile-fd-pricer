@@ -19,13 +19,19 @@ fn main() {
         t: 1.0,
         kind: OptionType::Put,
     };
-    let cfg = FdConfig { n_space: 600, n_time: 600, num_std: 8.0, scheme: Scheme::CrankNicolson };
+    let cfg = FdConfig {
+        n_space: 600,
+        n_time: 600,
+        num_std: 8.0,
+        scheme: Scheme::CrankNicolson,
+    };
 
     // Rebuild the same grid to recover node prices and pick a display window.
     let grid = Grid::new(&p, cfg.n_space, cfg.num_std);
     let (s_lo, s_hi) = (p.strike * 0.25, p.strike * 2.2);
-    let mut idx: Vec<usize> =
-        (0..=grid.n).filter(|&i| grid.s[i] >= s_lo && grid.s[i] <= s_hi).collect();
+    let mut idx: Vec<usize> = (0..=grid.n)
+        .filter(|&i| grid.s[i] >= s_lo && grid.s[i] <= s_hi)
+        .collect();
     // Subsample the window to keep the embedded data compact.
     let target_nodes = 180;
     if idx.len() > target_nodes {
@@ -59,7 +65,11 @@ fn main() {
 
     let path = "option_surface.html";
     std::fs::write(path, html).expect("write html");
-    println!("Wrote {path} ({} frames, {} price nodes)", frame_ids.len(), s_disp.len());
+    println!(
+        "Wrote {path} ({} frames, {} price nodes)",
+        frame_ids.len(),
+        s_disp.len()
+    );
 }
 
 fn build_json(

@@ -12,7 +12,9 @@ use tile_fd_pricer::heston::{self, Config, HestonParams};
 use tile_fd_pricer::OptionType;
 
 fn linspace(a: f64, b: f64, n: usize) -> Vec<f64> {
-    (0..n).map(|i| a + (b - a) * i as f64 / (n - 1) as f64).collect()
+    (0..n)
+        .map(|i| a + (b - a) * i as f64 / (n - 1) as f64)
+        .collect()
 }
 
 fn main() {
@@ -39,21 +41,45 @@ fn main() {
     for &t in &maturities {
         let mut row = Vec::new();
         for &k in &strikes {
-            let h = HestonParams { t, strike: k, ..base };
+            let h = HestonParams {
+                t,
+                strike: k,
+                ..base
+            };
             let price = heston::analytic_price(&h);
-            let bp = Params { spot: h.spot, strike: k, rate: h.rate, dividend: h.dividend, vol: 0.2, t, kind: h.kind };
+            let bp = Params {
+                spot: h.spot,
+                strike: k,
+                rate: h.rate,
+                dividend: h.dividend,
+                vol: 0.2,
+                t,
+                kind: h.kind,
+            };
             row.push(black_scholes::implied_vol(&bp, price).unwrap_or(f64::NAN));
         }
         iv.push(row);
     }
 
     // 2D FD value surface U(S, v) at T = 1.
-    let hfd = HestonParams { t: 1.0, strike: 100.0, ..base };
-    let cfg = Config { nx: 160, nv: 80, num_std: 6.0, v_max: 0.0, steps: 0 };
+    let hfd = HestonParams {
+        t: 1.0,
+        strike: 100.0,
+        ..base
+    };
+    let cfg = Config {
+        nx: 160,
+        nv: 80,
+        num_std: 6.0,
+        v_max: 0.0,
+        steps: 0,
+    };
     let r = heston::solve(&hfd, &cfg);
     // Clip the price axis to a readable window.
     let (s_lo, s_hi) = (50.0, 170.0);
-    let xi_idx: Vec<usize> = (0..=r.nx).filter(|&i| r.s[i] >= s_lo && r.s[i] <= s_hi).collect();
+    let xi_idx: Vec<usize> = (0..=r.nx)
+        .filter(|&i| r.s[i] >= s_lo && r.s[i] <= s_hi)
+        .collect();
     let s_disp: Vec<f64> = xi_idx.iter().map(|&i| r.s[i]).collect();
     let stride = r.nv + 1;
     let mut surf = Vec::new(); // surf[vrow][snode]
@@ -62,7 +88,16 @@ fn main() {
         surf.push(row);
     }
 
-    let data = build_json(&base, &maturities, &strikes, &iv, &s_disp, &r.v, &surf, r.time_steps);
+    let data = build_json(
+        &base,
+        &maturities,
+        &strikes,
+        &iv,
+        &s_disp,
+        &r.v,
+        &surf,
+        r.time_steps,
+    );
     let html = TEMPLATE.replace("__DATA__", &data);
     std::fs::write("heston_surface.html", html).expect("write");
     println!(

@@ -14,12 +14,16 @@ fn book(count: usize) -> Vec<Params> {
             let f = i as f64 / count as f64;
             Params {
                 spot: 100.0,
-                strike: 60.0 + 80.0 * f,        // 60 … 140
+                strike: 60.0 + 80.0 * f, // 60 … 140
                 rate: 0.05,
                 dividend: 0.0,
                 vol: 0.15 + 0.30 * ((i % 7) as f64 / 6.0), // 0.15 … 0.45
                 t: 1.0,
-                kind: if i % 2 == 0 { OptionType::Call } else { OptionType::Put },
+                kind: if i % 2 == 0 {
+                    OptionType::Call
+                } else {
+                    OptionType::Put
+                },
             }
         })
         .collect()
@@ -33,7 +37,10 @@ fn simd_is_bit_identical_to_scalar() {
     let steps = stable_steps(&opts, n, num_std);
 
     let simd = price_batch(&opts, n, num_std, steps);
-    let scalar: Vec<f64> = opts.iter().map(|p| price_one(p, n, num_std, steps)).collect();
+    let scalar: Vec<f64> = opts
+        .iter()
+        .map(|p| price_one(p, n, num_std, steps))
+        .collect();
 
     for (i, (a, b)) in simd.iter().zip(&scalar).enumerate() {
         assert_eq!(

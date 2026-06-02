@@ -1,5 +1,8 @@
 # tile-fd-pricer
 
+[![CI](https://github.com/wazi893/tile-fd-pricer/actions/workflows/ci.yml/badge.svg)](https://github.com/wazi893/tile-fd-pricer/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 A **deterministic finite-difference option pricer** in Rust.
 
 The numerical core is a three-point **stencil** — every grid value is computed

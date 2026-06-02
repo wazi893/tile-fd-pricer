@@ -44,7 +44,11 @@ impl Grid {
     /// standard deviations either side. `n_space` is rounded up to even so the
     /// spot lands exactly on the centre node.
     pub fn new(p: &Params, n_space: usize, num_std: f64) -> Grid {
-        let n = if n_space % 2 == 0 { n_space } else { n_space + 1 };
+        let n = if n_space.is_multiple_of(2) {
+            n_space
+        } else {
+            n_space + 1
+        };
         let center = p.spot.ln();
         // Width driven by total diffusion plus drift over the option's life.
         let half_width = num_std * p.vol * p.t.sqrt() + (p.rate - p.dividend).abs() * p.t;
@@ -58,7 +62,13 @@ impl Grid {
             x.push(xi);
             s.push(xi.exp());
         }
-        Grid { x, s, dx, n, spot_idx: n / 2 }
+        Grid {
+            x,
+            s,
+            dx,
+            n,
+            spot_idx: n / 2,
+        }
     }
 }
 
@@ -86,7 +96,12 @@ pub struct FdConfig {
 
 impl Default for FdConfig {
     fn default() -> Self {
-        FdConfig { n_space: 400, n_time: 400, num_std: 8.0, scheme: Scheme::CrankNicolson }
+        FdConfig {
+            n_space: 400,
+            n_time: 400,
+            num_std: 8.0,
+            scheme: Scheme::CrankNicolson,
+        }
     }
 }
 
@@ -209,9 +224,7 @@ where
 
                 v[0] = lo;
                 v[n] = hi;
-                for i in 1..n {
-                    v[i] = rhs[i];
-                }
+                v[1..n].copy_from_slice(&rhs[1..n]);
                 if american {
                     // Operator-splitting projection (a pragmatic American
                     // approximation; PSOR is a Phase-2 refinement).
@@ -224,7 +237,14 @@ where
     };
 
     let (price, delta, gamma) = read_value_and_greeks(&v, &grid);
-    FdResult { price, delta, gamma, values: v, grid, time_steps }
+    FdResult {
+        price,
+        delta,
+        gamma,
+        values: v,
+        grid,
+        time_steps,
+    }
 }
 
 /// Dirichlet boundary conditions, applied at time-to-maturity `tau`.
@@ -250,10 +270,10 @@ fn apply_boundary(v: &mut [f64], grid: &Grid, p: &Params, tau: f64, american: bo
 
 /// American constraint: value can never drop below immediate exercise.
 fn apply_early_exercise(v: &mut [f64], grid: &Grid, p: &Params) {
-    for i in 0..=grid.n {
-        let intrinsic = p.payoff(grid.s[i]);
-        if v[i] < intrinsic {
-            v[i] = intrinsic;
+    for (slot, &s) in v.iter_mut().zip(grid.s.iter()) {
+        let intrinsic = p.payoff(s);
+        if *slot < intrinsic {
+            *slot = intrinsic;
         }
     }
 }
