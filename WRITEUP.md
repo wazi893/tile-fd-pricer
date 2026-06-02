@@ -14,9 +14,10 @@ American exercise, Greeks, and reproducibility.
 
 - **1D Black–Scholes** — explicit + Crank–Nicolson, European + American, Greeks
   straight off the grid, validated by **convergence order** against the closed form.
-- **Batched throughput** — vectorised *across options* (four contracts per AVX2
-  register), then threaded: **4,200 → 709,000 options/second**, the SIMD path
-  **bit-identical** to the scalar reference.
+- **Batched throughput** — vectorised *across options* and threaded to ~940k
+  options/second, every path **bit-identical** to a scalar reference. The
+  benchmark also *corrected itself*: the headline "16× from SIMD" turned out to
+  be a `mul_add`→libm-call artifact, and the real win was threading (see below).
 - **2D Heston stochastic vol** — a nine-point stencil, validated against a
   semi-analytic Fourier oracle, producing the **implied-volatility skew** that
   flat Black–Scholes physically cannot.
@@ -120,23 +121,48 @@ acc = _mm256_fmadd_pd(puv, rvec, acc);           // + pu * right
 _mm256_storeu_pd(dst.add(j * LANES), acc);       // four options, one store
 ```
 
-Then split the book across threads with `std::thread::scope`. The ladder, pricing
-8,192 options:
+Then split the book across threads with `std::thread::scope`. Every path
+accumulates in the **same fused-multiply-add order** as a scalar reference, so the
+results are **bit-identical** — verified before timing, so any speedup is honest:
+same work, same answer.
+
+My first benchmark was a trap I walked into, and walking back out is the part
+worth telling. It showed ~16× from SIMD and ~170× with threads. Both numbers were
+inflated, and the reason is a Rust footgun:
+
+> `f64::mul_add` is only a hardware `vfmadd` if the target has FMA enabled at
+> compile time. Otherwise it lowers to a **libm `fma()` call** — a function call
+> per operation — because the language guarantees the fused (single-rounding)
+> result. My scalar baselines were paying that call; the hand-written AVX2 kernel
+> used the hardware instruction. So most of the "SIMD speedup" was really a
+> missing `-C target-feature=+fma`.
+
+After adding `target-cpu=native` so every path gets hardware FMA (best-of-3,
+8,192 options, 32-core box):
 
 ```
-                          time        throughput        speedup
-scalar reference        1.971 s      4 157 opt/s          1.00×
-AVX2 (4×f64)            0.121 s     67 922 opt/s         16.34×
-AVX2 + 32 threads       0.012 s    708 663 opt/s        170.46×
+                          time        throughput        vs prev
+scalar (naive, AoS)     0.122 s     66 968 opt/s          1.00×
+scalar (SoA layout)     0.216 s     37 915 opt/s          0.57×
+AVX2 (4×f64, SoA)       0.106 s     77 594 opt/s          2.05×
+AVX2 + 32 threads       0.009 s    937 246 opt/s         12.1×
 ```
 
-**The honest part:** 16× from a 4-wide register is *more* than the SIMD width, and
-a good interviewer will ask why. The answer is that SIMD compounds with two other
-wins — the structure-of-arrays layout (lane-contiguous, cache-friendly) and
-eliminating a per-option heap allocation. Data layout earned as much as the vector
-instructions did. And critically, the SIMD path accumulates in the **same
-fused-multiply-add order** as the scalar reference, so it's **bit-identical** —
-verified before timing, so the speedup is honest: same work, same answer, faster.
+The honest decomposition:
+
+- The compiler **auto-vectorises the naive contiguous loop**. My hand-written
+  AVX2 intrinsics are only ~1.16× faster than letting the optimiser do it.
+- My clever structure-of-arrays-*across-options* layout actually made the scalar
+  path **slower** (0.57×): the stride-4 access pattern defeats the unit-stride
+  auto-vectoriser. The "obvious" optimisation was a pessimisation.
+- The durable win is **threading — ~12× on 32 cores**, not the intrinsics.
+
+This is less impressive than "170× from SIMD," and that's exactly why it's worth
+writing down. The lessons are the senior ones: know what your "scalar" code
+compiles to; the compiler is frequently as good as hand-written SIMD once it can
+see the target; profile and attribute before you hand-vectorise. The bit-identity
+check is what made the correction findable — when every path must produce the same
+bits, you can't quietly explain away a suspicious number.
 
 ## Heston: stochastic vol, in two dimensions
 

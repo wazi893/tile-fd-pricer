@@ -71,27 +71,45 @@ surface `V(S, τ)` animating backward from expiry to today, the FD European and
 American prices tracking the exact Black–Scholes curve, live Delta/Gamma, and a
 toggle for the American early-exercise free boundary.
 
-## Performance — batched pricing
+## Performance — a benchmark that corrected itself
 
-A single option is microseconds of work; a desk prices a *book* of thousands.
-So the stencil is vectorised **across options**: four contracts ride the four
-lanes of an AVX2 `f64` register and march the same stencil in lockstep, then
-the book is split across threads. The SIMD path is verified **bit-identical**
-to the scalar reference (same fused-multiply-add order) before timing — the
-speedups are honest because the answer never changes.
+A single option is microseconds of work; a desk prices a *book* of thousands. So
+the stencil is vectorised **across options** (four contracts per AVX2 `f64`
+register, marching in lockstep), then the book is split across threads with
+`std::thread::scope`. Every path is verified **bit-identical** to a scalar
+reference (same fused-multiply-add order) before timing.
+
+My first run looked great — ~16× from SIMD, ~170× with threads. It was wrong, and
+chasing down why is the interesting part:
+
+> `f64::mul_add` lowers to a **libm `fma()` call** unless the target has FMA
+> enabled at compile time. The scalar baselines were paying a function call per
+> operation while the AVX2 kernel used a hardware `vfmadd` — so the "SIMD"
+> speedup was mostly a missing `-C target-feature=+fma`.
+
+With native codegen (`.cargo/config.toml`), the honest picture (best-of-3,
+8192 options, 256×488 grid, 32-core box):
 
 ```
-Book: 8192 options • grid 256 nodes × 488 steps • 1.0e9 stencil updates
-                          time        throughput        stencil    speedup
-scalar reference        1.971 s      4 157 opt/s      0.52 Gupd/s     1.00×
-AVX2 (4×f64)            0.121 s     67 922 opt/s      8.45 Gupd/s    16.34×
-AVX2 + 32 threads       0.012 s    708 663 opt/s     88.2 Gupd/s   170.46×
+                          time        throughput        stencil    vs prev
+scalar (naive, AoS)     0.122 s     66 968 opt/s      8.3 Gupd/s     1.00×
+scalar (SoA layout)     0.216 s     37 915 opt/s      4.7 Gupd/s     0.57×
+AVX2 (4×f64, SoA)       0.106 s     77 594 opt/s      9.7 Gupd/s     2.05×
+AVX2 + 32 threads       0.009 s    937 246 opt/s    116.6 Gupd/s    12.1×
 ```
 
-The 16× from a 4-wide register is the SIMD width compounded with the
-structure-of-arrays layout (lane-contiguous, cache-friendly) and the
-elimination of per-option heap allocation — i.e. *data layout earns as much as
-SIMD here*. Reproduce with `cargo run --release --example bench [count]`.
+What it actually shows:
+
+- The compiler **auto-vectorises the naive contiguous loop** — my hand-written
+  AVX2 is only ~1.16× faster than letting the optimiser do it.
+- My structure-of-arrays-*across-options* layout **hurt** the scalar path (0.57×):
+  the stride-4 access defeats unit-stride auto-vectorisation.
+- The durable win is **threading (~12× on 32 cores)**, not the intrinsics.
+
+Takeaways: know what your "scalar" code compiles to (`mul_add` without `+fma` is
+a call); the compiler is often as good as hand-written SIMD once it can see the
+target; measure before vectorising by hand. Reproduce with
+`cargo run --release --example bench [count]`.
 
 ## Heston stochastic volatility (2D)
 
