@@ -24,7 +24,8 @@ arrays layout, deterministic ordering) and built a deterministic options pricer:
   semi-analytic Fourier oracle, producing the **implied-volatility skew** that
   flat Black–Scholes physically cannot.
 
-Dependency-free Rust, 20 tests, zero warnings. [Repo](.) · [code walkthrough below].
+Dependency-free Rust, 20 tests, zero warnings.
+[Repo](https://github.com/wazi893/tile-fd-pricer) · code walkthrough below.
 
 ---
 
