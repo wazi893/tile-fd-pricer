@@ -29,6 +29,100 @@ fn base(kind: OptionType) -> HestonParams {
     }
 }
 
+#[test]
+fn adi_matches_analytic_across_parameters() {
+    // The Douglas ADI solver must track the Fourier price across a spread of
+    // correlations, vol-of-vols, maturities, and moneyness — with ~200 steps,
+    // where the explicit scheme needs tens of thousands.
+    let cfg = Config {
+        nx: 160,
+        nv: 80,
+        num_std: 6.0,
+        v_max: 0.0,
+        steps: 200,
+    };
+    let cases = [
+        base(OptionType::Call),
+        base(OptionType::Put),
+        HestonParams {
+            rho: -0.8,
+            xi: 0.5,
+            ..base(OptionType::Call)
+        },
+        HestonParams {
+            rho: 0.3,
+            xi: 0.4,
+            ..base(OptionType::Call)
+        },
+        HestonParams {
+            t: 0.5,
+            strike: 90.0,
+            ..base(OptionType::Call)
+        },
+        HestonParams {
+            t: 2.0,
+            strike: 110.0,
+            ..base(OptionType::Put)
+        },
+    ];
+    for h in cases {
+        let an = heston::analytic_price(&h);
+        let r = heston::solve_adi(&h, &cfg);
+        let rel = (r.price - an).abs() / an.max(1.0);
+        assert!(
+            rel < 0.02,
+            "ADI {} vs analytic {an} (rel {:.4}) for rho={} xi={} T={} K={}",
+            r.price,
+            rel,
+            h.rho,
+            h.xi,
+            h.t,
+            h.strike
+        );
+    }
+}
+
+#[test]
+fn adi_agrees_with_explicit() {
+    // Two independent schemes (explicit Euler vs Douglas ADI) must agree.
+    let h = base(OptionType::Call);
+    let ex = heston::solve(
+        &h,
+        &Config {
+            nx: 160,
+            nv: 80,
+            num_std: 6.0,
+            v_max: 0.0,
+            steps: 0,
+        },
+    );
+    let adi = heston::solve_adi(
+        &h,
+        &Config {
+            nx: 160,
+            nv: 80,
+            num_std: 6.0,
+            v_max: 0.0,
+            steps: 200,
+        },
+    );
+    let rel = (ex.price - adi.price).abs() / ex.price;
+    assert!(
+        rel < 0.01,
+        "explicit {} vs ADI {} (rel {:.4})",
+        ex.price,
+        adi.price,
+        rel
+    );
+    // ADI used far fewer steps for comparable accuracy.
+    assert!(
+        adi.time_steps * 20 < ex.time_steps,
+        "ADI {} vs explicit {} steps",
+        adi.time_steps,
+        ex.time_steps
+    );
+}
+
 fn bs_equiv(h: &HestonParams, vol: f64) -> f64 {
     black_scholes::price(&Params {
         spot: h.spot,

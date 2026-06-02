@@ -350,3 +350,196 @@ pub fn solve(p: &HestonParams, cfg: &Config) -> Result {
         time_steps: steps,
     }
 }
+
+/// Variable-coefficient tridiagonal solve over the inclusive range `[lo, hi]`
+/// (Thomas algorithm). Solution overwrites `rhs`; `c` is scratch.
+fn thomas_var(
+    sub: &[f64],
+    di: &[f64],
+    sup: &[f64],
+    rhs: &mut [f64],
+    c: &mut [f64],
+    lo: usize,
+    hi: usize,
+) {
+    c[lo] = sup[lo] / di[lo];
+    rhs[lo] /= di[lo];
+    for k in (lo + 1)..=hi {
+        let m = di[k] - sub[k] * c[k - 1];
+        c[k] = sup[k] / m;
+        rhs[k] = (rhs[k] - sub[k] * rhs[k - 1]) / m;
+    }
+    for k in (lo..hi).rev() {
+        rhs[k] -= c[k] * rhs[k + 1];
+    }
+}
+
+/// Price a Heston option with the **Douglas ADI** scheme (θ = ½).
+///
+/// Unlike the explicit [`solve`], this is unconditionally stable, so it needs
+/// ~100 time steps where the explicit scheme needs tens of thousands. The
+/// correlation cross term is handled explicitly in a predictor; the two axial
+/// operators are then corrected implicitly via tridiagonal solves along `x` and
+/// along `v`. Boundaries match [`solve`]: Dirichlet in `x`, a degenerate
+/// convection update at `v = 0`, and Neumann at `v = v_max`.
+pub fn solve_adi(p: &HestonParams, cfg: &Config) -> Result {
+    let nx = if cfg.nx.is_multiple_of(2) {
+        cfg.nx
+    } else {
+        cfg.nx + 1
+    };
+    let nv = cfg.nv;
+    let v_max = if cfg.v_max > 0.0 {
+        cfg.v_max
+    } else {
+        (p.v0.max(p.theta) * 6.0).max(0.2)
+    };
+    let center = p.spot.ln();
+    let vref = p.v0.max(p.theta).max(1e-4);
+    let half =
+        (cfg.num_std * vref.sqrt() * p.t.sqrt()).max(0.2) + (p.rate - p.dividend).abs() * p.t;
+    let dx = 2.0 * half / nx as f64;
+    let x: Vec<f64> = (0..=nx).map(|i| center - half + i as f64 * dx).collect();
+    let s: Vec<f64> = x.iter().map(|&xi| xi.exp()).collect();
+    let dv = v_max / nv as f64;
+    let v: Vec<f64> = (0..=nv).map(|j| j as f64 * dv).collect();
+    let stride = nv + 1;
+
+    let steps = if cfg.steps > 0 { cfg.steps } else { 100 };
+    let dtau = p.t / steps as f64;
+    let theta = 0.5;
+    let (r, q, xi2) = (p.rate, p.dividend, p.xi * p.xi);
+    let (dx2, dv2) = (dx * dx, dv * dv);
+
+    // Per-row (v-dependent) operator coefficients; constant in i.
+    let a1_lo = |j: usize| 0.5 * v[j] / dx2 - (r - q - 0.5 * v[j]) / (2.0 * dx);
+    let a1_di = |j: usize| -v[j] / dx2 - 0.5 * r;
+    let a1_up = |j: usize| 0.5 * v[j] / dx2 + (r - q - 0.5 * v[j]) / (2.0 * dx);
+    let a2_lo = |j: usize| 0.5 * xi2 * v[j] / dv2 - p.kappa * (p.theta - v[j]) / (2.0 * dv);
+    let a2_di = |j: usize| -xi2 * v[j] / dv2 - 0.5 * r;
+    let a2_up = |j: usize| 0.5 * xi2 * v[j] / dv2 + p.kappa * (p.theta - v[j]) / (2.0 * dv);
+
+    let mut u = vec![0.0f64; (nx + 1) * stride];
+    for i in 0..=nx {
+        let pay = p.payoff(s[i]);
+        for j in 0..=nv {
+            u[i * stride + j] = pay;
+        }
+    }
+    let mut y = u.clone();
+    let mut a1u = vec![0.0f64; (nx + 1) * stride];
+    let mut a2u = vec![0.0f64; (nx + 1) * stride];
+    let len = nx.max(nv) + 1;
+    let (mut rhs, mut cwork) = (vec![0.0f64; len], vec![0.0f64; len]);
+    let (mut sub, mut di, mut sup) = (vec![0.0f64; len], vec![0.0f64; len], vec![0.0f64; len]);
+
+    for step in 1..=steps {
+        let tau = step as f64 * dtau;
+        let dr = (-r * tau).exp();
+        let dq = (-q * tau).exp();
+        let (xlo, xhi) = match p.kind {
+            OptionType::Call => (0.0, s[nx] * dq - p.strike * dr),
+            OptionType::Put => ((p.strike * dr - s[0] * dq).max(0.0), 0.0),
+        };
+
+        // Axial operators applied to the OLD field (interior only).
+        for i in 1..nx {
+            for j in 1..nv {
+                a1u[i * stride + j] = a1_lo(j) * u[(i - 1) * stride + j]
+                    + a1_di(j) * u[i * stride + j]
+                    + a1_up(j) * u[(i + 1) * stride + j];
+                a2u[i * stride + j] = a2_lo(j) * u[i * stride + j - 1]
+                    + a2_di(j) * u[i * stride + j]
+                    + a2_up(j) * u[i * stride + j + 1];
+            }
+        }
+
+        // Predictor: Y0 = u + dτ·(A0 + A1 + A2)·u  (A0 = explicit cross term).
+        for i in 1..nx {
+            for j in 1..nv {
+                let vj = v[j];
+                let pp = u[(i + 1) * stride + j + 1];
+                let pm = u[(i + 1) * stride + j - 1];
+                let mp = u[(i - 1) * stride + j + 1];
+                let mm = u[(i - 1) * stride + j - 1];
+                let a0 = p.rho * p.xi * vj * (pp - pm - mp + mm) / (4.0 * dx * dv);
+                let lu = a0 + a1u[i * stride + j] + a2u[i * stride + j];
+                y[i * stride + j] = u[i * stride + j] + dtau * lu;
+            }
+            // v = 0 degenerate convection row.
+            let c0 = u[i * stride];
+            let ux0 = (u[(i + 1) * stride] - u[(i - 1) * stride]) / (2.0 * dx);
+            let uv0 = (u[i * stride + 1] - c0) / dv;
+            y[i * stride] = c0 + dtau * ((r - q) * ux0 + p.kappa * p.theta * uv0 - r * c0);
+        }
+        for j in 0..=nv {
+            y[j] = xlo;
+            y[nx * stride + j] = xhi;
+        }
+        for i in 0..=nx {
+            y[i * stride + nv] = y[i * stride + nv - 1];
+        }
+
+        // Correction 1 (x-direction): (I − θdτ·A1) Y1 = Y0 − θdτ·A1·u, per v-row.
+        for j in 1..nv {
+            for i in 1..nx {
+                rhs[i] = y[i * stride + j] - theta * dtau * a1u[i * stride + j];
+            }
+            let (sb, dg, sp) = (
+                -theta * dtau * a1_lo(j),
+                1.0 - theta * dtau * a1_di(j),
+                -theta * dtau * a1_up(j),
+            );
+            for i in 1..nx {
+                sub[i] = sb;
+                di[i] = dg;
+                sup[i] = sp;
+            }
+            rhs[1] -= sb * xlo;
+            rhs[nx - 1] -= sp * xhi;
+            thomas_var(&sub, &di, &sup, &mut rhs, &mut cwork, 1, nx - 1);
+            for i in 1..nx {
+                y[i * stride + j] = rhs[i];
+            }
+        }
+
+        // Correction 2 (v-direction): (I − θdτ·A2) Y2 = Y1 − θdτ·A2·u, per x-column.
+        // j = 0 is Dirichlet (predictor value); j = nv is Neumann (∂U/∂v = 0).
+        for i in 1..nx {
+            for j in 1..nv {
+                rhs[j] = y[i * stride + j] - theta * dtau * a2u[i * stride + j];
+                sub[j] = -theta * dtau * a2_lo(j);
+                di[j] = 1.0 - theta * dtau * a2_di(j);
+                sup[j] = -theta * dtau * a2_up(j);
+            }
+            // Dirichlet bottom: fold known v=0 value (predictor) into the j=1 row.
+            rhs[1] -= sub[1] * y[i * stride];
+            // Neumann top: U[nv] = U[nv-1] folds sup into the diagonal at j=nv-1.
+            di[nv - 1] += sup[nv - 1];
+            thomas_var(&sub, &di, &sup, &mut rhs, &mut cwork, 1, nv - 1);
+            for j in 1..nv {
+                y[i * stride + j] = rhs[j];
+            }
+            y[i * stride + nv] = y[i * stride + nv - 1];
+        }
+
+        std::mem::swap(&mut u, &mut y);
+    }
+
+    let i0 = nx / 2;
+    let jf = (p.v0 / dv).clamp(0.0, (nv - 1) as f64);
+    let j0 = jf.floor() as usize;
+    let frac = jf - j0 as f64;
+    let price = u[i0 * stride + j0] * (1.0 - frac) + u[i0 * stride + j0 + 1] * frac;
+
+    Result {
+        price,
+        values: u,
+        x,
+        s,
+        v,
+        nx,
+        nv,
+        time_steps: steps,
+    }
+}
