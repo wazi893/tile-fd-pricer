@@ -77,6 +77,35 @@ fn analytic_greeks_match_finite_difference_bumps() {
 }
 
 #[test]
+fn down_and_out_barrier_sanity() {
+    // Validated by limits and no-arbitrage relations (no hardcoded barrier
+    // formula): a knock-out is worth less than the vanilla option, and as the
+    // barrier moves far below spot it must converge to the vanilla price.
+    let p = atm_call();
+    let vanilla = black_scholes::price(&p).price;
+
+    let near = fd::price_down_and_out(&p, 95.0, 400, 0); // barrier just below spot
+    let far = fd::price_down_and_out(&p, 20.0, 400, 0); // barrier far away
+
+    // A barrier just below spot knocks out easily ⇒ worth well under vanilla.
+    assert!(
+        near > 0.0 && near < 0.8 * vanilla,
+        "near-barrier {near} vs vanilla {vanilla}"
+    );
+    // A far barrier almost never knocks out ⇒ converges to the vanilla price
+    // (to within the explicit scheme's discretisation error).
+    assert!(
+        (far - vanilla).abs() < 0.05,
+        "far barrier {far} vs vanilla {vanilla}"
+    );
+    // Monotonic: a lower barrier is less likely to knock out, so worth more.
+    assert!(
+        far > near,
+        "lower barrier {far} should exceed higher barrier {near}"
+    );
+}
+
+#[test]
 fn european_call_matches_closed_form() {
     let p = atm_call();
     let cfg = FdConfig {

@@ -296,6 +296,70 @@ fn thomas(sub: f64, diag: f64, sup: f64, rhs: &mut [f64], c: &mut [f64], lo: usi
     }
 }
 
+/// Price a European **down-and-out** barrier option by explicit finite
+/// differences. The option pays the vanilla payoff at maturity *unless* the
+/// underlying ever touches the knock-out `barrier` (`barrier < spot`), in which
+/// case it expires worthless.
+///
+/// Barriers are the textbook case where finite differences beat Monte Carlo:
+/// continuous knock-out is just a **Dirichlet `V = 0` boundary at the barrier**,
+/// whereas MC has to detect a continuous crossing from discrete samples (and
+/// carries a well-known discretisation bias). The grid is built on
+/// `x ∈ [ln(barrier), x_max]` so the barrier sits exactly on node 0.
+pub fn price_down_and_out(p: &Params, barrier: f64, n_space: usize, n_time: usize) -> f64 {
+    assert!(
+        barrier < p.spot && barrier > 0.0,
+        "barrier must satisfy 0 < B < spot"
+    );
+    let n = if n_space.is_multiple_of(2) {
+        n_space
+    } else {
+        n_space + 1
+    };
+    let x_lo = barrier.ln();
+    let half = (8.0 * p.vol * p.t.sqrt() + (p.rate - p.dividend).abs() * p.t).max(0.1);
+    let x_hi = p.spot.ln() + half;
+    let dx = (x_hi - x_lo) / n as f64;
+    let s: Vec<f64> = (0..=n).map(|i| (x_lo + i as f64 * dx).exp()).collect();
+
+    let a = 0.5 * p.vol * p.vol;
+    let b = p.rate - p.dividend - 0.5 * p.vol * p.vol;
+    let alpha = a / (dx * dx);
+    let beta = b / (2.0 * dx);
+
+    // Stable explicit step count.
+    let dt_max = 1.0 / (2.0 * alpha + p.rate.max(0.0));
+    let steps = n_time.max((p.t / (0.9 * dt_max)).ceil() as usize).max(1);
+    let dtau = p.t / steps as f64;
+    let (pu, pm, pd) = (
+        dtau * (alpha + beta),
+        1.0 - dtau * (2.0 * alpha + p.rate),
+        dtau * (alpha - beta),
+    );
+
+    let mut v: Vec<f64> = s.iter().map(|&si| p.payoff(si)).collect();
+    v[0] = 0.0; // knocked out at the barrier
+    let mut next = v.clone();
+    for step in 1..=steps {
+        let tau = step as f64 * dtau;
+        for i in 1..n {
+            next[i] = pd * v[i - 1] + pm * v[i] + pu * v[i + 1];
+        }
+        next[0] = 0.0; // knock-out boundary
+        next[n] = match p.kind {
+            OptionType::Call => s[n] * (-p.dividend * tau).exp() - p.strike * (-p.rate * tau).exp(),
+            OptionType::Put => 0.0,
+        };
+        std::mem::swap(&mut v, &mut next);
+    }
+
+    // Linear interpolation at ln(spot).
+    let xf = (p.spot.ln() - x_lo) / dx;
+    let i0 = (xf.floor() as usize).min(n - 1);
+    let frac = xf - i0 as f64;
+    v[i0] * (1.0 - frac) + v[i0 + 1] * frac
+}
+
 /// Read the price at the spot node and compute Delta/Gamma by converting the
 /// log-space derivatives back to price space.
 fn read_value_and_greeks(v: &[f64], grid: &Grid) -> (f64, f64, f64) {

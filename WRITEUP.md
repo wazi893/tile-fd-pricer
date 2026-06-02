@@ -67,6 +67,7 @@ project leans on:
 |---|---|---|
 | American / early exercise | needs Longstaff–Schwartz regression | one `max(V, payoff)` per step |
 | Greeks (Δ, Γ) | bump-and-revalue, noisy | read directly off the grid |
+| Barrier / knock-out | discrete-monitoring bias | an exact `V = 0` boundary |
 | Reproducibility | seed-dependent | **bit-identical** |
 
 The American case is the cleanest demonstration: with finite differences,
