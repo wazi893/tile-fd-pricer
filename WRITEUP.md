@@ -12,8 +12,9 @@ cell-updates/second on a GPU) and pointed its architecture at options pricing,
 where finite differences beat Monte Carlo on the cases that actually matter:
 American exercise, Greeks, and reproducibility.
 
-- **1D Black–Scholes** — explicit + Crank–Nicolson, European + American, Greeks
-  straight off the grid, validated by **convergence order** against the closed form.
+- **1D Black–Scholes** — explicit + Crank–Nicolson, European + American +
+  down-and-out barriers, Greeks straight off the grid, validated by
+  **convergence order** against the closed form.
 - **Batched throughput** — vectorised *across options* and threaded to ~940k
   options/second, every path **bit-identical** to a scalar reference. The
   benchmark also *corrected itself*: the headline "16× from SIMD" turned out to
@@ -24,8 +25,8 @@ American exercise, Greeks, and reproducibility.
 
 **Try it:** `cargo test` runs the validation suite, `cargo run --example bench`
 prints the throughput ladder, and `cargo run --example heston_surface` writes an
-interactive HTML vol surface you can open in a browser. Dependency-free Rust, 20
-tests, zero warnings. [github.com/wazi893/tile-fd-pricer](https://github.com/wazi893/tile-fd-pricer).
+interactive HTML vol surface you can open in a browser. Dependency-free Rust, 26
+tests, zero warnings, CI green. [github.com/wazi893/tile-fd-pricer](https://github.com/wazi893/tile-fd-pricer).
 
 **The honest caveat, up front:** I am *not* running option prices through the
 automaton's 1-bit boolean kernel — that would be absurd. What carries over is the
@@ -47,15 +48,13 @@ and one time step is:
 V'ᵢ = pd·Vᵢ₋₁ + pm·Vᵢ + pu·Vᵢ₊₁
 ```
 
-That's it. That's the stencil. Same `f(neighbours)` shape, different arithmetic
-in the middle. The boolean kernel becomes a floating-point kernel; the
-*choreography* — memory layout, sweep order, determinism — carries over wholesale.
-
-As flagged above, the boolean kernel doesn't *become* the float kernel — but the
-choreography around it does. And that's the real lesson: the hard-won patterns
-(SoA layout, cache-friendly sweeps, cross-backend determinism) are
-domain-general. The grid doesn't care whether the cells are alive-or-dead or
-priced-in-dollars.
+That's it. That's the stencil — same `f(neighbours)` shape, different arithmetic
+in the middle. And that's the whole claim, stated precisely: the 1-bit boolean
+kernel doesn't *become* the floating-point one, but the *choreography* around it
+— memory layout, sweep order, determinism discipline — carries over wholesale.
+Those patterns are domain-general; the grid doesn't care whether its cells are
+alive-or-dead or priced-in-dollars. That's also why "performance engineer" is a
+transferable role and not a per-domain one.
 
 ## Why finite differences (and not Monte Carlo)
 
